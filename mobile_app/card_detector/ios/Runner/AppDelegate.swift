@@ -8,21 +8,21 @@ import UIKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    if let controller = window?.rootViewController as? FlutterViewController {
-      let factory = CardCameraPlatformViewFactory(messenger: controller.binaryMessenger)
-      if let registrar = self.registrar(forPlugin: "CardCameraPlatformView") {
-        registrar.register(factory, withId: "card_detector/camera_view")
-      }
+    if let registrar = self.registrar(forPlugin: "CardCameraPlatformView") {
+      let factory = CardCameraPlatformViewFactory()
+      registrar.register(factory, withId: "card_detector/camera_view")
+
+      let messenger = registrar.messenger()
 
       let eventChannel = FlutterEventChannel(
         name: "card_detector/detections",
-        binaryMessenger: controller.binaryMessenger
+        binaryMessenger: messenger
       )
       eventChannel.setStreamHandler(DetectionEventStreamHandler.shared)
 
       let methodChannel = FlutterMethodChannel(
         name: "card_detector/camera_control",
-        binaryMessenger: controller.binaryMessenger
+        binaryMessenger: messenger
       )
       methodChannel.setMethodCallHandler { call, result in
         switch call.method {
@@ -123,14 +123,7 @@ private final class CardCameraController {
 }
 
 private final class CardCameraPlatformViewFactory: NSObject, FlutterPlatformViewFactory {
-  private let messenger: FlutterBinaryMessenger
-
-  init(messenger: FlutterBinaryMessenger) {
-    self.messenger = messenger
-    super.init()
-  }
-
-  func createArgsCodec() -> (any FlutterMessageCodec & NSObjectProtocol)? {
+  func createArgsCodec() -> FlutterMessageCodec & NSObjectProtocol {
     FlutterStandardMessageCodec.sharedInstance()
   }
 
