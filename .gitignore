@@ -1,0 +1,28 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+.pub-cache/
+build/
+
+# iOS
+mobile_app/**/DerivedData/
+mobile_app/**/Pods/
+mobile_app/**/.symlinks/
+mobile_app/**/Flutter/ephemeral/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Playing-Cards-Object-Detection artifacts (too large for git)
+Playing-Cards-Object-Detection/env/
+Playing-Cards-Object-Detection/data/
+!Playing-Cards-Object-Detection/data/**/data.yaml
+!Playing-Cards-Object-Detection/data/**/test.yaml
+!Playing-Cards-Object-Detection/data/**/val.yaml
+Playing-Cards-Object-Detection/runs/
+Playing-Cards-Object-Detection/final_models/
+
+# OS
+.DS_Store
