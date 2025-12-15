@@ -25,6 +25,7 @@ class _CardDetectorHomeState extends State<CardDetectorHome> {
 
   var _mode = _Mode.camera;
   var _torchEnabled = false;
+  var _snapshotBusy = false;
 
   List<Detection> _cameraDetections = const [];
 
@@ -84,6 +85,50 @@ class _CardDetectorHomeState extends State<CardDetectorHome> {
     return ui.Size(img.width.toDouble(), img.height.toDouble());
   }
 
+  Future<void> _captureCardsSnapshot() async {
+    if (_snapshotBusy) return;
+    setState(() => _snapshotBusy = true);
+
+    try {
+      final labels = await _controller.captureCards(
+        frames: 10,
+        minOccurrences: 3,
+        minConfidence: 0.0,
+        timeout: const Duration(seconds: 2),
+      );
+
+      final sorted = _sortCardLabelsAllTrumps(labels);
+
+      if (!mounted) return;
+      await showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        builder: (context) {
+          if (sorted.isEmpty) {
+            return const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('No stable cards detected (need ≥3 hits across ~10 frames).'),
+            );
+          }
+          return ListView.separated(
+            padding: const EdgeInsets.all(16),
+            itemCount: sorted.length,
+            separatorBuilder: (context, index) => const Divider(height: 1),
+            itemBuilder: (context, i) {
+              final label = sorted[i];
+              return ListTile(
+                title: Text(label),
+                subtitle: const Text('Snapshot (aggregated over multiple frames)'),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      if (mounted) setState(() => _snapshotBusy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isCamera = _mode == _Mode.camera;
@@ -102,6 +147,17 @@ class _CardDetectorHomeState extends State<CardDetectorHome> {
                 if (!mounted) return;
                 if (ok) setState(() => _torchEnabled = next);
               },
+            ),
+          if (isCamera)
+            IconButton(
+              tooltip: 'Snapshot (aggregate)',
+              icon: _snapshotBusy
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.center_focus_strong_outlined),
+              onPressed: _snapshotBusy ? null : _captureCardsSnapshot,
             ),
           IconButton(
             tooltip: 'Pick photo',
@@ -171,6 +227,63 @@ class _CardDetectorHomeState extends State<CardDetectorHome> {
       ),
     );
   }
+}
+
+List<String> _sortCardLabelsAllTrumps(List<String> labels) {
+  final parsed = labels.map(_parseLabel).whereType<_ParsedCard>().toList(growable: false);
+  parsed.sort((a, b) {
+    final s = a.suitIndex.compareTo(b.suitIndex);
+    if (s != 0) return s;
+    return a.orderIndex.compareTo(b.orderIndex);
+  });
+  return parsed.map((c) => c.label).toList(growable: false);
+}
+
+_ParsedCard? _parseLabel(String label) {
+  if (label.length < 2) return null;
+  final suit = label.substring(label.length - 1).toUpperCase();
+  final value = label.substring(0, label.length - 1).toUpperCase();
+
+  final suitIndex = switch (suit) {
+    'S' => 0,
+    'H' => 1,
+    'D' => 2,
+    'C' => 3,
+    _ => null,
+  };
+  if (suitIndex == null) return null;
+
+  final orderIndex = _allTrumpsOrderIndex(value);
+  if (orderIndex == null) return null;
+
+  return _ParsedCard(label: label, suitIndex: suitIndex, orderIndex: orderIndex);
+}
+
+int? _allTrumpsOrderIndex(String value) {
+  // Matches Playing-Cards-Object-Detection/demo_application/utils/game_logic.py CardTrumpOrder
+  return switch (value) {
+    'J' => 0,
+    '9' => 1,
+    'A' => 2,
+    '10' => 3,
+    'K' => 4,
+    'Q' => 5,
+    '8' => 6,
+    '7' => 7,
+    _ => null,
+  };
+}
+
+class _ParsedCard {
+  const _ParsedCard({
+    required this.label,
+    required this.suitIndex,
+    required this.orderIndex,
+  });
+
+  final String label;
+  final int suitIndex;
+  final int orderIndex;
 }
 
 class _PhotoView extends StatelessWidget {

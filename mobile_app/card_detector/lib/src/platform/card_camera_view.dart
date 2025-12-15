@@ -36,6 +36,48 @@ class CardCameraController {
     );
   }
 
+  Future<List<String>> captureCards({
+    int frames = 10,
+    int minOccurrences = 3,
+    double minConfidence = 0.0,
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
+    _ensureListening();
+
+    final observedLabels = <String>[];
+    var seenFrames = 0;
+    final done = Completer<void>();
+
+    late final StreamSubscription<List<Detection>> sub;
+    sub = detectionsStream.listen((detections) {
+      seenFrames += 1;
+      for (final d in detections) {
+        if (d.confidence >= minConfidence) observedLabels.add(d.label);
+      }
+      if (seenFrames >= frames && !done.isCompleted) done.complete();
+    });
+
+    try {
+      await done.future.timeout(timeout);
+    } on TimeoutException {
+      // Best-effort: return whatever was observed within timeout.
+    } finally {
+      await sub.cancel();
+    }
+
+    final counts = <String, int>{};
+    for (final label in observedLabels) {
+      counts[label] = (counts[label] ?? 0) + 1;
+    }
+
+    final aggregated = counts.entries
+        .where((e) => e.value >= minOccurrences)
+        .map((e) => e.key)
+        .toList(growable: false);
+    aggregated.sort();
+    return aggregated;
+  }
+
   Future<bool> setTorchEnabled(bool enabled) async {
     try {
       final result = await _controlChannel.invokeMethod<bool>('setTorch', {
@@ -95,4 +137,3 @@ class _CardCameraViewState extends State<CardCameraView> {
     );
   }
 }
-
