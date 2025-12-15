@@ -16,12 +16,19 @@ class _CardDetectorHomeState extends State<CardDetectorHome> {
   var _torchEnabled = false;
   List<Detection> _detections = const [];
 
+  var _eventCount = 0;
+  DateTime? _lastEventAt;
+
   @override
   void initState() {
     super.initState();
     _controller.detectionsStream.listen((detections) {
       if (!mounted) return;
-      setState(() => _detections = detections);
+      setState(() {
+        _detections = detections;
+        _eventCount += 1;
+        _lastEventAt = DateTime.now();
+      });
     });
   }
 
@@ -54,9 +61,41 @@ class _CardDetectorHomeState extends State<CardDetectorHome> {
         children: [
           CardCameraView(controller: _controller),
           IgnorePointer(child: DetectionOverlay(detections: _detections)),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    child: DefaultTextStyle(
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('events: $_eventCount'),
+                          Text('detections: ${_detections.length}'),
+                          Text('last: ${_lastEventAt?.toIso8601String() ?? "—"}'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
   }
 }
-
