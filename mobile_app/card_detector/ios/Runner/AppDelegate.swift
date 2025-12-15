@@ -41,6 +41,34 @@ import UIKit
           }
           CardCameraController.shared.setTorchEnabled(enabled, result: result)
 
+        case "detectImage":
+          guard let args = call.arguments as? [String: Any],
+                let path = args["path"] as? String
+          else {
+            result(
+              FlutterError(
+                code: "invalid_args",
+                message: "Expected { path: string }",
+                details: nil
+              )
+            )
+            return
+          }
+
+          guard let image = UIImage(contentsOfFile: path) else {
+            result(
+              FlutterError(
+                code: "invalid_image",
+                message: "Could not read image at path.",
+                details: nil
+              )
+            )
+            return
+          }
+
+          let detections = OnnxCardDetector().detect(stillImageSize: image.size)
+          result(detections.map { $0.toMap() })
+
         default:
           result(FlutterMethodNotImplemented)
         }
@@ -174,6 +202,14 @@ private struct Detection {
 
 private final class OnnxCardDetector {
   func detect(pixelBuffer: CVPixelBuffer, viewSize: CGSize) -> [Detection] {
+  func detect(stillImageSize: CGSize) -> [Detection] {
+    // TODO(onnx): Convert UIImage/CVPixelBuffer -> model tensor and run ONNX.
+    // Returning normalized coordinates (0..1) for Flutter to map into the displayed image.
+    let box = CGRect(x: 0.2, y: 0.25, width: 0.6, height: 0.45)
+    return [Detection(label: "AS", confidence: 0.92, bbox: box)]
+  }
+
+
     // TODO(onnx): Add ONNX Runtime (iOS) dependency.
     // TODO(preprocess): CVPixelBuffer -> model tensor (resize/letterbox, normalize).
     // TODO(inference): Run ORTSession inference and parse YOLO outputs.

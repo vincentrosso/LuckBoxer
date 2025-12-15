@@ -48,6 +48,18 @@ class CardCameraController {
     }
   }
 
+  Future<List<Detection>> detectImage(String path) async {
+    try {
+      final result = await _controlChannel.invokeMethod<List>("detectImage", {
+        "path": path,
+      });
+      return Detection.listFromEvent(result);
+    } on PlatformException catch (e) {
+      debugPrint('detectImage failed: ${e.code} ${e.message}');
+      return const [];
+    }
+  }
+
   void dispose() {
     _detectionsSub?.cancel();
     _detectionsSub = null;
