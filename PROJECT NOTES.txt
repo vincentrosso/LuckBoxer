@@ -25,6 +25,7 @@ Model / Runtime
 - Label order: `mobile_app/card_detector/assets/model_labels.txt` (must match the model’s class order)
 - Model: YOLOv8 export, 640×640 input, 52 classes (standard deck)
 - iOS runtime: CocoaPods `onnxruntime-mobile-objc`
+  - Ensure these assets are listed in `mobile_app/card_detector/pubspec.yaml` under `flutter/assets` so they get bundled.
 
 Key Files
 - Flutter:

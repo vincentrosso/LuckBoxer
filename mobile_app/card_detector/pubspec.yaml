@@ -61,6 +61,8 @@ flutter:
 
   assets:
     - assets/labels.txt
+    - assets/model.onnx
+    - assets/model_labels.txt
 
   # To add assets to your application, add an assets section, like this:
   # assets:
