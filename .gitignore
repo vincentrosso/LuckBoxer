@@ -30,3 +30,4 @@ Playing-Cards-Object-Detection/final_models/
 # Local ML artifacts
 *.pt
 *.onnx
+!mobile_app/card_detector/assets/model.onnx

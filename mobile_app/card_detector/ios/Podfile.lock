@@ -1,0 +1,35 @@
+PODS:
+  - Flutter (1.0.0)
+  - image_picker_ios (0.0.1):
+    - Flutter
+  - onnxruntime-mobile-c (1.18.0)
+  - onnxruntime-mobile-objc (1.18.0):
+    - onnxruntime-mobile-objc/Core (= 1.18.0)
+  - onnxruntime-mobile-objc/Core (1.18.0):
+    - onnxruntime-mobile-c (= 1.18.0)
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
+  - onnxruntime-mobile-objc (~> 1.18.0)
+
+SPEC REPOS:
+  trunk:
+    - onnxruntime-mobile-c
+    - onnxruntime-mobile-objc
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  image_picker_ios:
+    :path: ".symlinks/plugins/image_picker_ios/ios"
+
+SPEC CHECKSUMS:
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  image_picker_ios: e0ece4aa2a75771a7de3fa735d26d90817041326
+  onnxruntime-mobile-c: 612e643a0717ffe35ef1b3e9c3d63a084a5c122b
+  onnxruntime-mobile-objc: f573466890bac314c136f18fcdcf97916fd14812
+
+PODFILE CHECKSUM: c4aaf342c5e1d23a64a74a139e9276e9150f9048
+
+COCOAPODS: 1.16.2

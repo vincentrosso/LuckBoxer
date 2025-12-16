@@ -1,0 +1,51 @@
+LuckBoxer — PROJECT NOTES
+Last updated: 2025-12-16
+
+Overview
+- Goal: iOS app that detects/identifies playing cards in real time (~10 FPS) with bounding boxes + labels.
+- UI: Flutter (camera preview host view, overlays, app state).
+- Inference: native iOS + ONNX Runtime for performance.
+
+Repo
+- GitHub: https://github.com/vincentrosso/LuckBoxer
+- Layout:
+  - `Playing-Cards-Object-Detection/`: training + utilities (large artifacts excluded from git)
+  - `mobile_app/card_detector/`: Flutter+iOS app
+
+What Works Now
+- Live camera preview on iPhone via native iOS `UiKitView` (`AVCaptureSession`)
+- Real-time ONNX inference on-device (YOLOv8 output decode + NMS)
+- Bounding boxes + labels rendered in Flutter
+- Torch toggle
+- Detect from photo (pick from Photos; runs ONNX and returns normalized boxes for Flutter mapping)
+- Snapshot aggregation (Python `capture_cards()` equivalent): aggregates labels across ~10 frames and keeps those seen ≥3 times
+
+Model / Runtime
+- ONNX model asset: `mobile_app/card_detector/assets/model.onnx`
+- Label order: `mobile_app/card_detector/assets/model_labels.txt` (must match the model’s class order)
+- Model: YOLOv8 export, 640×640 input, 52 classes (standard deck)
+- iOS runtime: CocoaPods `onnxruntime-mobile-objc`
+
+Key Files
+- Flutter:
+  - `mobile_app/card_detector/lib/src/home/card_detector_home.dart`
+  - `mobile_app/card_detector/lib/src/platform/card_camera_view.dart`
+  - `mobile_app/card_detector/lib/src/ui/detection_overlay.dart`
+- iOS:
+  - `mobile_app/card_detector/ios/Runner/AppDelegate.swift` (channels + camera pipeline)
+  - `mobile_app/card_detector/ios/Runner/OnnxCardDetector.swift` (preprocess → ORTSession → decode/NMS → coordinate mapping)
+  - `mobile_app/card_detector/ios/Runner/Info.plist` (camera/photos permissions)
+
+Run (iPhone)
+1) `cd mobile_app/card_detector`
+2) `flutter run -d <DEVICE_ID>`
+
+Notes / Known Issues
+- If boxes look rotated or offset, adjust orientation/mapping in `OnnxCardDetector.cgImageFrom(pixelBuffer:)` and `mapToAspectFillView(...)`.
+- If `flutter run` disconnects, the app may still be running on the device; re-run to reattach.
+- CocoaPods: `ios/Flutter/Debug.xcconfig` and `ios/Flutter/Release.xcconfig` include Pods xcconfigs (required for ORT).
+
+Next Tasks
+- Tune thresholds, FPS, and provider settings (CoreML vs XNNPACK) for stability/latency.
+- Improve coordinate accuracy (portrait rotation + aspectFill crop).
+- Optional: add temporal smoothing/tracking for steadier overlays.

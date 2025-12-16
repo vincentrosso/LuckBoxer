@@ -14,6 +14,8 @@ import UIKit
 
       let messenger = registrar.messenger()
 
+      configureOnnxDetector(registrar: registrar)
+
       let eventChannel = FlutterEventChannel(
         name: "card_detector/detections",
         binaryMessenger: messenger
@@ -66,7 +68,7 @@ import UIKit
             return
           }
 
-          let detections = OnnxCardDetector().detect(stillImageSize: image.size)
+          let detections = OnnxCardDetector.shared.detect(image: image)
           result(detections.map { $0.toMap() })
 
         default:
@@ -77,6 +79,39 @@ import UIKit
     GeneratedPluginRegistrant.register(with: self)
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
+}
+
+private func configureOnnxDetector(registrar: FlutterPluginRegistrar) {
+  guard let modelPath = flutterAssetPath(registrar: registrar, asset: "assets/model.onnx"),
+        let labelsPath = flutterAssetPath(registrar: registrar, asset: "assets/model_labels.txt")
+  else {
+    NSLog("[card_detector] model assets not found; ONNX detector disabled.")
+    return
+  }
+
+  do {
+    try OnnxCardDetector.shared.configure(modelPath: modelPath, labelsPath: labelsPath)
+    NSLog("[card_detector] ONNX detector configured.")
+  } catch {
+    NSLog("[card_detector] ONNX configure failed: \(error)")
+  }
+}
+
+private func flutterAssetPath(registrar: FlutterPluginRegistrar, asset: String) -> String? {
+  let key = registrar.lookupKey(forAsset: asset)
+
+  if let path = Bundle.main.path(forResource: key, ofType: nil), FileManager.default.fileExists(atPath: path) {
+    return path
+  }
+
+  // Flutter assets are commonly stored under App.framework/flutter_assets/.
+  if let frameworks = Bundle.main.privateFrameworksURL {
+    let appFramework = frameworks.appendingPathComponent("App.framework")
+    let candidate = appFramework.appendingPathComponent("flutter_assets").appendingPathComponent(key).path
+    if FileManager.default.fileExists(atPath: candidate) { return candidate }
+  }
+
+  return nil
 }
 
 private final class DetectionEventStreamHandler: NSObject, FlutterStreamHandler {
@@ -181,7 +216,7 @@ private final class PreviewContainerView: UIView {
   }
 }
 
-private struct Detection {
+struct Detection {
   let label: String
   let confidence: Double
   let bbox: CGRect
@@ -200,29 +235,6 @@ private struct Detection {
   }
 }
 
-private final class OnnxCardDetector {
-  func detect(pixelBuffer: CVPixelBuffer, viewSize: CGSize) -> [Detection] {
-  func detect(stillImageSize: CGSize) -> [Detection] {
-    // TODO(onnx): Convert UIImage/CVPixelBuffer -> model tensor and run ONNX.
-    // Returning normalized coordinates (0..1) for Flutter to map into the displayed image.
-    let box = CGRect(x: 0.2, y: 0.25, width: 0.6, height: 0.45)
-    return [Detection(label: "AS", confidence: 0.92, bbox: box)]
-  }
-
-
-    // TODO(onnx): Add ONNX Runtime (iOS) dependency.
-    // TODO(preprocess): CVPixelBuffer -> model tensor (resize/letterbox, normalize).
-    // TODO(inference): Run ORTSession inference and parse YOLO outputs.
-    // TODO(postprocess): Decode -> NMS -> map to view coordinates.
-
-    // Mock detection to validate camera + overlay pipeline before wiring the model.
-    let w = viewSize.width
-    let h = viewSize.height
-    let box = CGRect(x: w * 0.2, y: h * 0.25, width: w * 0.6, height: h * 0.45)
-    return [Detection(label: "AS", confidence: 0.92, bbox: box)]
-  }
-}
-
 private final class CardCameraPlatformView: NSObject, FlutterPlatformView, AVCaptureVideoDataOutputSampleBufferDelegate {
   private let viewId: Int64
   private let containerView: UIView
@@ -232,7 +244,7 @@ private final class CardCameraPlatformView: NSObject, FlutterPlatformView, AVCap
   private var currentDevice: AVCaptureDevice?
   private var lastInferenceTime: CFTimeInterval = 0
   private let minInferenceInterval: CFTimeInterval = 0.1 // 10 FPS
-  private let detector = OnnxCardDetector()
+  private let detector = OnnxCardDetector.shared
 
   init(frame: CGRect, viewId: Int64, args: Any?) {
     self.viewId = viewId
@@ -300,16 +312,20 @@ private final class CardCameraPlatformView: NSObject, FlutterPlatformView, AVCap
     from connection: AVCaptureConnection
   ) {
     let now = CACurrentMediaTime()
-    if now - lastInferenceTime < minInferenceInterval { return }
-    lastInferenceTime = now
-
-    guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-    let viewSize = containerView.bounds.size
-    if viewSize.width <= 0 || viewSize.height <= 0 { return }
-
-    let detections = detector.detect(pixelBuffer: pixelBuffer, viewSize: viewSize)
-    DetectionBus.shared.emit(detections.map { $0.toMap() })
-  }
+	    if now - lastInferenceTime < minInferenceInterval { return }
+	    lastInferenceTime = now
+	
+	    guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+	    var viewSize: CGSize = .zero
+	    DispatchQueue.main.sync { [weak self] in
+	      guard let self else { return }
+	      viewSize = self.containerView.bounds.size
+	    }
+	    if viewSize.width <= 0 || viewSize.height <= 0 { return }
+	
+	    let detections = detector.detect(pixelBuffer: pixelBuffer, viewSize: viewSize)
+	    DetectionBus.shared.emit(detections.map { $0.toMap() })
+	  }
 
   func setTorchEnabled(_ enabled: Bool, result: @escaping FlutterResult) {
     sessionQueue.async { [weak self] in
