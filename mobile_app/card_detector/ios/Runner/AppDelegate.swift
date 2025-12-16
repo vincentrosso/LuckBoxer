@@ -85,10 +85,15 @@ import UIKit
 }
 
 private func configureOnnxDetector(registrar: FlutterPluginRegistrar) {
-  guard let modelPath = flutterAssetPath(registrar: registrar, asset: "assets/model.onnx"),
-        let labelsPath = flutterAssetPath(registrar: registrar, asset: "assets/model_labels.txt")
-  else {
-    NSLog("[card_detector] model assets not found; ONNX detector disabled.")
+  let modelAsset = "assets/model.onnx"
+  let labelsAsset = "assets/model_labels.txt"
+  let modelPath = flutterAssetPath(registrar: registrar, asset: modelAsset)
+  let labelsPath = flutterAssetPath(registrar: registrar, asset: labelsAsset)
+
+  guard let modelPath, let labelsPath else {
+    let msg = "Model assets not found. model=\(modelPath ?? "nil") labels=\(labelsPath ?? "nil")"
+    NSLog("[card_detector] \(msg)")
+    OnnxCardDetector.shared.recordConfigureFailure(modelPath: modelPath, labelsPath: labelsPath, error: msg)
     return
   }
 
@@ -96,22 +101,33 @@ private func configureOnnxDetector(registrar: FlutterPluginRegistrar) {
     try OnnxCardDetector.shared.configure(modelPath: modelPath, labelsPath: labelsPath)
     NSLog("[card_detector] ONNX detector configured.")
   } catch {
-    NSLog("[card_detector] ONNX configure failed: \(error)")
+    let msg = "ONNX configure failed: \(error)"
+    NSLog("[card_detector] \(msg)")
+    OnnxCardDetector.shared.recordConfigureFailure(modelPath: modelPath, labelsPath: labelsPath, error: msg)
   }
 }
 
 private func flutterAssetPath(registrar: FlutterPluginRegistrar, asset: String) -> String? {
   let key = registrar.lookupKey(forAsset: asset)
 
-  if let path = Bundle.main.path(forResource: key, ofType: nil), FileManager.default.fileExists(atPath: path) {
-    return path
+  let fm = FileManager.default
+  var candidates: [URL] = []
+
+  if let res = Bundle.main.resourceURL {
+    candidates.append(res.appendingPathComponent(key))
+    candidates.append(res.appendingPathComponent("flutter_assets").appendingPathComponent(key))
   }
 
-  // Flutter assets are commonly stored under App.framework/flutter_assets/.
-  if let frameworks = Bundle.main.privateFrameworksURL {
-    let appFramework = frameworks.appendingPathComponent("App.framework")
-    let candidate = appFramework.appendingPathComponent("flutter_assets").appendingPathComponent(key).path
-    if FileManager.default.fileExists(atPath: candidate) { return candidate }
+  // Common Flutter layout: <App>.app/Frameworks/App.framework/flutter_assets/<key>
+  let fw = Bundle.main.bundleURL.appendingPathComponent("Frameworks").appendingPathComponent("App.framework").appendingPathComponent("flutter_assets")
+  candidates.append(fw.appendingPathComponent(key))
+
+  // Sometimes flutter_assets may live at the app bundle root.
+  candidates.append(Bundle.main.bundleURL.appendingPathComponent("flutter_assets").appendingPathComponent(key))
+
+  for url in candidates {
+    let path = url.path
+    if fm.fileExists(atPath: path) { return path }
   }
 
   return nil

@@ -22,6 +22,9 @@ final class OnnxCardDetector {
   private var inputName: String?
   private var outputName: String?
   private var lastOutputShape: [Int] = []
+  private var lastConfigureError: String = ""
+  private var lastModelPath: String = ""
+  private var lastLabelsPath: String = ""
   private var lastMaxScore: Float = 0
   private var lastMaxLabel: String = ""
   private var lastCandidates: Int = 0
@@ -37,6 +40,11 @@ final class OnnxCardDetector {
         "inputName": inputName ?? "",
         "outputName": outputName ?? "",
         "outputShape": lastOutputShape,
+        "modelPath": lastModelPath,
+        "labelsPath": lastLabelsPath,
+        "modelExists": FileManager.default.fileExists(atPath: lastModelPath),
+        "labelsExists": FileManager.default.fileExists(atPath: lastLabelsPath),
+        "lastError": lastConfigureError,
         "maxScore": lastMaxScore,
         "maxLabel": lastMaxLabel,
         "candidates": lastCandidates,
@@ -45,8 +53,29 @@ final class OnnxCardDetector {
     }
   }
 
+  func recordConfigureFailure(modelPath: String?, labelsPath: String?, error: String) {
+    sessionQueue.sync {
+      self.lastModelPath = modelPath ?? ""
+      self.lastLabelsPath = labelsPath ?? ""
+      self.lastConfigureError = error
+      self.env = nil
+      self.session = nil
+      self.inputName = nil
+      self.outputName = nil
+      self.lastOutputShape = []
+      self.lastMaxScore = 0
+      self.lastMaxLabel = ""
+      self.lastCandidates = 0
+      self.lastSelected = 0
+    }
+  }
+
   func configure(modelPath: String, labelsPath: String) throws {
     try sessionQueue.sync {
+      lastModelPath = modelPath
+      lastLabelsPath = labelsPath
+      lastConfigureError = ""
+
       guard FileManager.default.fileExists(atPath: modelPath) else {
         throw NSError(domain: "card_detector", code: 1, userInfo: [NSLocalizedDescriptionKey: "Model not found at path."])
       }

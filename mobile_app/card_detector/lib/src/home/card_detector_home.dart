@@ -228,6 +228,8 @@ class _CardDetectorHomeState extends State<CardDetectorHome> {
                           Text('shape: ${_onnxDebug['outputShape'] ?? '—'}'),
                           Text('max: ${_onnxDebug['maxLabel'] ?? ''} ${_onnxDebug['maxScore'] ?? ''}'),
                           Text('cand/sel: ${_onnxDebug['candidates'] ?? '—'}/${_onnxDebug['selected'] ?? '—'}'),
+                          if ((_onnxDebug['lastError'] as String?)?.isNotEmpty ?? false)
+                            Text('err: ${_onnxDebug['lastError']}'),
                           Text('last: ${_lastEventAt?.toIso8601String() ?? "—"}'),
                         ],
                       ),
