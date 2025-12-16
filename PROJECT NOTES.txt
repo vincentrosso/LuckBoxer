@@ -44,6 +44,7 @@ Notes / Known Issues
 - If boxes look rotated or offset, adjust orientation/mapping in `OnnxCardDetector.cgImageFrom(pixelBuffer:)` and `mapToAspectFillView(...)`.
 - If `flutter run` disconnects, the app may still be running on the device; re-run to reattach.
 - CocoaPods: `ios/Flutter/Debug.xcconfig` and `ios/Flutter/Release.xcconfig` include Pods xcconfigs (required for ORT).
+- Debug HUD: app shows ONNX status (configured/output shape/max score) via MethodChannel `getOnnxDebug`.
 
 Next Tasks
 - Tune thresholds, FPS, and provider settings (CoreML vs XNNPACK) for stability/latency.

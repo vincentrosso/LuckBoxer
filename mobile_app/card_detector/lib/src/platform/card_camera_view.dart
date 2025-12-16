@@ -102,6 +102,17 @@ class CardCameraController {
     }
   }
 
+  Future<Map<String, Object?>> getOnnxDebug() async {
+    try {
+      final result = await _controlChannel.invokeMethod<dynamic>('getOnnxDebug');
+      if (result is Map) return Map<String, Object?>.from(result);
+      return const {};
+    } on PlatformException catch (e) {
+      debugPrint('getOnnxDebug failed: ${e.code} ${e.message}');
+      return const {};
+    }
+  }
+
   void dispose() {
     _detectionsSub?.cancel();
     _detectionsSub = null;

@@ -43,6 +43,9 @@ import UIKit
           }
           CardCameraController.shared.setTorchEnabled(enabled, result: result)
 
+        case "getOnnxDebug":
+          result(OnnxCardDetector.shared.debugInfo())
+
         case "detectImage":
           guard let args = call.arguments as? [String: Any],
                 let path = args["path"] as? String

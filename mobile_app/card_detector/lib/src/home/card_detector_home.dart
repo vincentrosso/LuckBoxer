@@ -29,6 +29,9 @@ class _CardDetectorHomeState extends State<CardDetectorHome> {
 
   List<Detection> _cameraDetections = const [];
 
+  Map<String, Object?> _onnxDebug = const {};
+  Timer? _onnxTimer;
+
   String? _photoPath;
   ui.Size? _photoSize;
   List<Detection> _photoDetections = const [];
@@ -47,10 +50,17 @@ class _CardDetectorHomeState extends State<CardDetectorHome> {
         _lastEventAt = DateTime.now();
       });
     });
+
+    _onnxTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+      final info = await _controller.getOnnxDebug();
+      if (!mounted) return;
+      setState(() => _onnxDebug = info);
+    });
   }
 
   @override
   void dispose() {
+    _onnxTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
@@ -214,6 +224,10 @@ class _CardDetectorHomeState extends State<CardDetectorHome> {
                           Text('events: $_eventCount'),
                           Text('camera det: ${_cameraDetections.length}'),
                           Text('photo det: ${_photoDetections.length}'),
+                          Text('onnx: ${_onnxDebug['configured'] ?? '—'}'),
+                          Text('shape: ${_onnxDebug['outputShape'] ?? '—'}'),
+                          Text('max: ${_onnxDebug['maxLabel'] ?? ''} ${_onnxDebug['maxScore'] ?? ''}'),
+                          Text('cand/sel: ${_onnxDebug['candidates'] ?? '—'}/${_onnxDebug['selected'] ?? '—'}'),
                           Text('last: ${_lastEventAt?.toIso8601String() ?? "—"}'),
                         ],
                       ),

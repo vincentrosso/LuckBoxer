@@ -9,7 +9,7 @@ final class OnnxCardDetector {
   static let shared = OnnxCardDetector()
 
   private let inputSize: Int = 640
-  private let confThreshold: Float = 0.25
+  private let confThreshold: Float = 0.02
   private let iouThreshold: Float = 0.45
   private let maxDetections: Int = 50
 
@@ -21,8 +21,29 @@ final class OnnxCardDetector {
   private var session: ORTSession?
   private var inputName: String?
   private var outputName: String?
+  private var lastOutputShape: [Int] = []
+  private var lastMaxScore: Float = 0
+  private var lastMaxLabel: String = ""
+  private var lastCandidates: Int = 0
+  private var lastSelected: Int = 0
 
   private init() {}
+
+  func debugInfo() -> [String: Any] {
+    sessionQueue.sync {
+      [
+        "configured": session != nil,
+        "labels": labels.count,
+        "inputName": inputName ?? "",
+        "outputName": outputName ?? "",
+        "outputShape": lastOutputShape,
+        "maxScore": lastMaxScore,
+        "maxLabel": lastMaxLabel,
+        "candidates": lastCandidates,
+        "selected": lastSelected,
+      ]
+    }
+  }
 
   func configure(modelPath: String, labelsPath: String) throws {
     try sessionQueue.sync {
@@ -60,6 +81,11 @@ final class OnnxCardDetector {
       self.session = session
       self.inputName = inputName
       self.outputName = outputName
+      self.lastOutputShape = []
+      self.lastMaxScore = 0
+      self.lastMaxLabel = ""
+      self.lastCandidates = 0
+      self.lastSelected = 0
     }
   }
 
@@ -67,19 +93,27 @@ final class OnnxCardDetector {
     sessionQueue.sync {
       guard let session, let inputName, let outputName else { return [] }
 
-      let sourceW = CVPixelBufferGetWidth(pixelBuffer)
-      let sourceH = CVPixelBufferGetHeight(pixelBuffer)
-      let sourceSize = CGSize(width: sourceW, height: sourceH)
-
       guard let cgImage = cgImageFrom(pixelBuffer: pixelBuffer) else { return [] }
+      // Use the oriented CGImage size for all downstream geometry.
+      let sourceSize = CGSize(width: cgImage.width, height: cgImage.height)
       guard let prep = preprocess(cgImage: cgImage, sourceSize: sourceSize) else { return [] }
 
       guard let output = run(session: session, inputName: inputName, outputName: outputName, inputTensor: prep.tensor) else {
         return []
       }
 
-      let decoded = decodeYolo(output: output, labels: labels, confThreshold: confThreshold, iouThreshold: iouThreshold, maxDetections: maxDetections)
-      return decoded.map { d in
+      let decoded = decodeYolo(
+        output: output,
+        labels: labels,
+        confThreshold: confThreshold,
+        iouThreshold: iouThreshold,
+        maxDetections: maxDetections
+      )
+      lastMaxScore = decoded.maxScore
+      lastMaxLabel = decoded.maxLabel
+      lastCandidates = decoded.candidates
+      lastSelected = decoded.detections.count
+      return decoded.detections.map { d in
         let modelRect = d.rect
         let origRect = prep.letterbox.unletterbox(modelRect: modelRect, originalSize: sourceSize)
         let viewRect = mapToAspectFillView(rectInSource: origRect, sourceSize: sourceSize, viewSize: viewSize)
@@ -100,8 +134,18 @@ final class OnnxCardDetector {
         return []
       }
 
-      let decoded = decodeYolo(output: output, labels: labels, confThreshold: confThreshold, iouThreshold: iouThreshold, maxDetections: maxDetections)
-      return decoded.map { d in
+      let decoded = decodeYolo(
+        output: output,
+        labels: labels,
+        confThreshold: confThreshold,
+        iouThreshold: iouThreshold,
+        maxDetections: maxDetections
+      )
+      lastMaxScore = decoded.maxScore
+      lastMaxLabel = decoded.maxLabel
+      lastCandidates = decoded.candidates
+      lastSelected = decoded.detections.count
+      return decoded.detections.map { d in
         let modelRect = d.rect
         let origRect = prep.letterbox.unletterbox(modelRect: modelRect, originalSize: sourceSize)
         let norm = CGRect(
@@ -115,23 +159,42 @@ final class OnnxCardDetector {
     }
   }
 
-  private func run(session: ORTSession, inputName: String, outputName: String, inputTensor: NSMutableData) -> [Float]? {
+  struct OutputTensor {
+    let values: [Float]
+    let shape: [Int]
+  }
+
+  private func run(session: ORTSession, inputName: String, outputName: String, inputTensor: NSMutableData) -> OutputTensor? {
     guard let input = try? ORTValue(
       tensorData: inputTensor,
       elementType: ORTTensorElementDataType.float,
       shape: [1, 3, NSNumber(value: inputSize), NSNumber(value: inputSize)]
     ) else { return nil }
 
-    guard let outputs = try? session.run(withInputs: [inputName: input], outputNames: Set([outputName]), runOptions: nil) else {
+    do {
+      let outputs = try session.run(withInputs: [inputName: input], outputNames: Set([outputName]), runOptions: nil)
+      guard let out = outputs[outputName] else { return nil }
+
+      let shape: [Int]
+      if let info = try? out.tensorTypeAndShapeInfo() {
+        shape = info.shape.map { $0.intValue }
+      } else {
+        shape = []
+      }
+      if !shape.isEmpty, shape != lastOutputShape {
+        lastOutputShape = shape
+        NSLog("[card_detector] ONNX output shape: \(shape)")
+      }
+
+      let data = try out.tensorData()
+      let count = data.length / MemoryLayout<Float>.size
+      let base = data.bytes.assumingMemoryBound(to: Float.self)
+      let values = Array(UnsafeBufferPointer(start: base, count: count))
+      return OutputTensor(values: values, shape: shape)
+    } catch {
+      NSLog("[card_detector] ONNX run failed: \(error)")
       return nil
     }
-
-    guard let out = outputs[outputName] else { return nil }
-    guard let data = try? out.tensorData() else { return nil }
-
-    let count = data.length / MemoryLayout<Float>.size
-    let base = data.bytes.assumingMemoryBound(to: Float.self)
-    return Array(UnsafeBufferPointer(start: base, count: count))
   }
 
   private func cgImageFrom(pixelBuffer: CVPixelBuffer) -> CGImage? {
@@ -237,35 +300,103 @@ private struct DecodedDetection {
   let label: String
 }
 
+private struct DecodeResult {
+  let detections: [DecodedDetection]
+  let maxScore: Float
+  let maxLabel: String
+  let candidates: Int
+}
+
 private func decodeYolo(
-  output: [Float],
+  output: OnnxCardDetector.OutputTensor,
   labels: [String],
   confThreshold: Float,
   iouThreshold: Float,
   maxDetections: Int
-) -> [DecodedDetection] {
-  // Expected output: [1, (4+nc), 8400]
-  let channels = 4 + max(labels.count, 1)
-  guard output.count % channels == 0 else { return [] }
-  let numPred = output.count / channels
+) -> DecodeResult {
+  let values = output.values
+  let nc = max(labels.count, 1)
+
+  // Accept common shapes:
+  // - [1, 4+nc, N] or [1, 5+nc, N]
+  // - [1, N, 4+nc] or [1, N, 5+nc]
+  // Fallback: infer by divisibility.
+  var channels = 4 + nc
+  var numPred = 0
+  var channelMajor = true // values indexed as [c][i] contiguous by i
+  var hasObjectness = false
+
+  if output.shape.count == 3 {
+    let d1 = output.shape[1]
+    let d2 = output.shape[2]
+    if d1 == 4 + nc || d1 == 5 + nc {
+      channels = d1
+      numPred = d2
+      channelMajor = true
+      hasObjectness = (d1 == 5 + nc)
+    } else if d2 == 4 + nc || d2 == 5 + nc {
+      channels = d2
+      numPred = d1
+      channelMajor = false
+      hasObjectness = (d2 == 5 + nc)
+    }
+  }
+
+  if numPred == 0 {
+    // Fallback: try channels 4+nc and 5+nc.
+    let c1 = 4 + nc
+    let c2 = 5 + nc
+    if values.count % c1 == 0 {
+      channels = c1
+      numPred = values.count / c1
+      channelMajor = true
+      hasObjectness = false
+    } else if values.count % c2 == 0 {
+      channels = c2
+      numPred = values.count / c2
+      channelMajor = true
+      hasObjectness = true
+    } else {
+      return DecodeResult(detections: [], maxScore: 0, maxLabel: "", candidates: 0)
+    }
+  }
 
   func sigmoid(_ x: Float) -> Float { 1 / (1 + exp(-x)) }
+  func prob(_ raw: Float) -> Float {
+    // Some exports already output probabilities in [0,1]. If so, don't sigmoid again.
+    if raw >= 0, raw <= 1 { return raw }
+    return sigmoid(raw)
+  }
 
   var candidates: [DecodedDetection] = []
   candidates.reserveCapacity(256)
 
+  var maxScoreSeen: Float = 0
+  var maxLabelSeen: String = ""
+
   for i in 0..<numPred {
-    let x = output[i + 0 * numPred]
-    let y = output[i + 1 * numPred]
-    let w = output[i + 2 * numPred]
-    let h = output[i + 3 * numPred]
+    func v(_ c: Int) -> Float {
+      if channelMajor {
+        return values[i + c * numPred]
+      } else {
+        return values[c + i * channels]
+      }
+    }
+
+    let x = v(0)
+    let y = v(1)
+    let w = v(2)
+    let h = v(3)
     if w <= 0 || h <= 0 { continue }
+
+    let obj: Float = hasObjectness ? prob(v(4)) : 1.0
+    let clsOffset = hasObjectness ? 5 : 4
 
     var bestScore: Float = 0
     var bestClass: Int = -1
     for c in 0..<labels.count {
-      let raw = output[i + (4 + c) * numPred]
-      let s = sigmoid(raw)
+      let raw = v(clsOffset + c)
+      let s = prob(raw) * obj
       if s > bestScore {
         bestScore = s
         bestClass = c
@@ -278,8 +409,20 @@ private func decodeYolo(
     let y1 = y - h / 2
     let rect = CGRect(x: CGFloat(x1), y: CGFloat(y1), width: CGFloat(w), height: CGFloat(h))
     candidates.append(DecodedDetection(rect: rect, score: bestScore, classIndex: bestClass, label: labels[bestClass]))
+
+    if bestScore > maxScoreSeen {
+      maxScoreSeen = bestScore
+      maxLabelSeen = labels[bestClass]
+    }
   }
 
+  if maxScoreSeen > 0 {
+    NSLog("[card_detector] decode maxScore=\(maxScoreSeen) label=\(maxLabelSeen) candidates=\(candidates.count)")
+  } else {
+    NSLog("[card_detector] decode no candidates (confThreshold=\(confThreshold))")
+  }
+
+  let candidatesCount = candidates.count
   // Class-agnostic NMS.
   candidates.sort { $0.score > $1.score }
   var selected: [DecodedDetection] = []
@@ -298,7 +441,7 @@ private func decodeYolo(
       if selected.count >= maxDetections { break }
     }
   }
-  return selected
+  return DecodeResult(detections: selected, maxScore: maxScoreSeen, maxLabel: maxLabelSeen, candidates: candidatesCount)
 }
 
 private func iou(a: CGRect, b: CGRect) -> Float {
