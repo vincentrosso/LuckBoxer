@@ -26,3 +26,7 @@ Playing-Cards-Object-Detection/final_models/
 
 # OS
 .DS_Store
+
+# Local ML artifacts
+*.pt
+*.onnx
